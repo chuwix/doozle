@@ -30,6 +30,7 @@
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             androidSdk
+            android-tools
             gradle
             jdk17
             kotlin
