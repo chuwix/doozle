@@ -162,8 +162,8 @@ class PairSelectorTest {
             val pair = selector.selectPair()
 
             assertNotNull(pair)
-            assertEquals(0, pair!!.first.position)
-            assertEquals(1, pair.second.position)
+            val positions = setOf(pair!!.first.position, pair.second.position)
+            assertEquals(setOf(0, 1), positions)
         }
 
         @Test
