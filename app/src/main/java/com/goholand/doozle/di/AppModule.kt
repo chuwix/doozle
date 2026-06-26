@@ -15,3 +15,4 @@ val appModule = module {
 
     viewModel { ProjectPickerViewModel(get()) }
 }
+
