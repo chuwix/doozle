@@ -40,24 +40,13 @@ class UnseenManager(
     }
 
     /**
-     * Scan project root for new image files and move them to _unseen/.
-     * Only direct children of projectRoot are scanned (not subdirectories).
+     * Scan project folder recursively for new image files and move them to _unseen/.
+     * Skips _unseen/ and _ranked/ directories. All nested images are collected.
      * Returns the number of photos moved.
      */
     fun scanForNewPhotos(): Int {
-        val children = fs.listChildren(projectRoot)
         var count = 0
-
-        for (child in children) {
-            // Skip directories (including _unseen, _ranked, and any subdirs)
-            if (fs.isDirectory(child)) continue
-
-            val name = fs.fileName(child)
-            // Skip hidden files
-            if (name.startsWith(".")) continue
-            // Skip non-image files
-            if (!isImageFile(name)) continue
-
+        scanDirectory(projectRoot) { child, name ->
             // Move to _unseen, handling name collisions
             val targetPath = "$unseenPath/$name"
             if (fs.exists(targetPath)) {
@@ -76,8 +65,30 @@ class UnseenManager(
             }
             count++
         }
-
         return count
+    }
+
+    /**
+     * Recursively walk a directory, invoking [onImage] for each image file found.
+     * Skips _unseen/, _ranked/, and hidden directories/files.
+     */
+    private fun scanDirectory(dirPath: String, onImage: (path: String, name: String) -> Unit) {
+        val children = fs.listChildren(dirPath)
+        for (child in children) {
+            val name = fs.fileName(child)
+            if (name.startsWith(".")) continue
+
+            if (fs.isDirectory(child)) {
+                // Skip our managed directories
+                if (name == UNSEEN_DIR || name == RANKED_DIR) continue
+                // Recurse into subdirectories
+                scanDirectory(child, onImage)
+            } else {
+                if (isImageFile(name)) {
+                    onImage(child, name)
+                }
+            }
+        }
     }
 
     /**

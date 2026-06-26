@@ -83,13 +83,27 @@ class UnseenManagerTest {
         }
 
         @Test
-        fun `scan handles photos in subdirectories`() {
-            // Photos in subdirs of root are NOT scanned (only direct children)
+        fun `scan finds photos in subdirectories recursively`() {
             fs.createFile("$projectRoot/subfolder/deep.jpg")
+            fs.createFile("$projectRoot/subfolder/nested/deeper.png")
 
             val moved = manager.scanForNewPhotos()
 
-            assertEquals(0, moved)
+            assertEquals(2, moved)
+            assertTrue(fs.exists("$projectRoot/_unseen/deep.jpg"))
+            assertTrue(fs.exists("$projectRoot/_unseen/deeper.png"))
+        }
+
+        @Test
+        fun `scan skips _ranked and _unseen subdirectories`() {
+            fs.createFile("$projectRoot/_ranked/0_existing.jpg")
+            fs.createFile("$projectRoot/_unseen/already_there.jpg")
+            fs.createFile("$projectRoot/other_subdir/new_photo.jpg")
+
+            val moved = manager.scanForNewPhotos()
+
+            assertEquals(1, moved)
+            assertTrue(fs.exists("$projectRoot/_unseen/new_photo.jpg"))
         }
 
         @Test
