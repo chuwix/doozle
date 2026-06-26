@@ -2,10 +2,13 @@ package com.goholand.doozle
 
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
@@ -24,7 +27,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface {
                     DoozleNavigation()
                 }
@@ -46,26 +49,45 @@ class MainActivity : ComponentActivity() {
                 )
             }
             composable("compare/{folderUri}") { backStackEntry ->
-                val folderUri = backStackEntry.arguments?.getString("folderUri")?.let {
-                    Uri.decode(it)
-                } ?: ""
+                val folderUriStr = backStackEntry.arguments?.getString("folderUri") ?: ""
+                val parsedUri = Uri.parse(folderUriStr)
+
+                // Check we still have permission
+                val hasPermission = remember(folderUriStr) {
+                    val persisted = context.contentResolver.persistedUriPermissions
+                    Log.d("Doozle", "Checking permission for: $folderUriStr")
+                    Log.d("Doozle", "Persisted: ${persisted.map { it.uri.toString() }}")
+                    persisted.any { perm ->
+                        perm.isReadPermission &&
+                            perm.uri.toString() == folderUriStr
+                    }
+                }
+
+                if (!hasPermission) {
+                    androidx.compose.material3.Text("Permission lost. Please re-select the folder.")
+                    LaunchedEffect(Unit) {
+                        kotlinx.coroutines.delay(2000)
+                        navController.popBackStack()
+                    }
+                    return@composable
+                }
 
                 val config = EngineConfig()
-                val fs = remember(folderUri) {
-                    SafFileSystem(context, Uri.parse(folderUri))
+                val fs = remember(folderUriStr) {
+                    SafFileSystem(context, parsedUri)
                 }
-                val tree = remember(folderUri) {
+                val tree = remember(folderUriStr) {
                     BStarTree(fs, "_ranked", config)
                 }
-                val unseenManager = remember(folderUri) {
+                val unseenManager = remember(folderUriStr) {
                     UnseenManager(fs, "")
                 }
-                val viewModel = remember(folderUri) {
+                val viewModel = remember(folderUriStr) {
                     ComparisonViewModel(tree, unseenManager, config)
                 }
 
-                LaunchedEffect(folderUri) {
-                    viewModel.initialize(fs, "_unseen")
+                LaunchedEffect(folderUriStr) {
+                    viewModel.initialize(fs, "")
                 }
 
                 val state by viewModel.state.collectAsState()

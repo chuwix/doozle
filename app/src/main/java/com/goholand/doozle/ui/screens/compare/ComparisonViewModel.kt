@@ -2,10 +2,13 @@ package com.goholand.doozle.ui.screens.compare
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.goholand.doozle.engine.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * State for the comparison screen.
@@ -37,21 +40,29 @@ class ComparisonViewModel(
 
     private var pairSelector: PairSelector? = null
 
-    fun initialize(fs: FileSystem, unseenRoot: String) {
+    fun initialize(fs: FileSystem, projectRoot: String) {
         viewModelScope.launch {
             try {
-                tree.initialize()
-                unseenManager.initialize()
+                Log.d("ComparisonVM", "initialize: starting")
+                withContext(Dispatchers.IO) {
+                    tree.initialize()
+                    unseenManager.initialize()
+                }
 
-                // Scan for new photos
-                unseenManager.scanForNewPhotos()
+                // Create pair selector — scans projectRoot once for unseen, skipping _ranked/
+                val selector = withContext(Dispatchers.IO) {
+                    PairSelector(tree, fs, projectRoot, config).also {
+                        it.listUnseen() // trigger cache fill on IO thread
+                    }
+                }
+                pairSelector = selector
 
-                // Create pair selector
-                pairSelector = PairSelector(tree, fs, unseenRoot, config)
+                Log.d("ComparisonVM", "initialize: ${selector.unseenCount()} unseen, ${tree.totalPhotos()} ranked")
 
                 // Load first pair
                 loadNextPair()
             } catch (e: Exception) {
+                Log.e("ComparisonVM", "initialize error", e)
                 _state.value = ComparisonState.Error(e.message ?: "Unknown error")
             }
         }
@@ -60,23 +71,24 @@ class ComparisonViewModel(
     fun onWinnerSelected(winner: PairCandidate, loser: PairCandidate) {
         viewModelScope.launch {
             try {
-                // If unseen photo won/lost, promote it first
-                val winnerPos = resolvePosition(winner)
-                val loserPos = resolvePosition(loser)
+                withContext(Dispatchers.IO) {
+                    // If unseen photo won/lost, promote it first
+                    val winnerPos = resolvePosition(winner)
+                    val loserPos = resolvePosition(loser)
 
-                if (winnerPos < 0 || loserPos < 0) {
-                    // Something went wrong with position resolution
-                    loadNextPair()
-                    return@launch
+                    if (winnerPos < 0 || loserPos < 0) {
+                        // Something went wrong with position resolution
+                        return@withContext
+                    }
+
+                    // Apply comparison
+                    tree.applyComparison(
+                        winnerPosition = winnerPos,
+                        loserPosition = loserPos,
+                        winnerIsUnseen = winner.isUnseen,
+                        loserIsUnseen = loser.isUnseen
+                    )
                 }
-
-                // Apply comparison
-                tree.applyComparison(
-                    winnerPosition = winnerPos,
-                    loserPosition = loserPos,
-                    winnerIsUnseen = winner.isUnseen,
-                    loserIsUnseen = loser.isUnseen
-                )
 
                 // Load next pair
                 loadNextPair()
@@ -99,12 +111,15 @@ class ComparisonViewModel(
             path = candidate.path
         )
         val stagingPath = unseenManager.promotePhoto(photo)
+        pairSelector?.removeUnseen(candidate.path)
         return tree.insertAtCenter(stagingPath)
     }
 
-    private fun loadNextPair() {
+    private suspend fun loadNextPair() {
         val selector = pairSelector ?: return
-        val pair = selector.selectPair()
+        val pair = withContext(Dispatchers.IO) {
+            selector.selectPair()
+        }
 
         if (pair == null) {
             _state.value = ComparisonState.NeedMorePhotos
@@ -113,7 +128,7 @@ class ComparisonViewModel(
                 left = pair.first,
                 right = pair.second,
                 totalPhotos = tree.totalPhotos(),
-                unseenCount = unseenManager.getUnseenPhotos().size
+                unseenCount = selector.unseenCount()
             )
         }
     }

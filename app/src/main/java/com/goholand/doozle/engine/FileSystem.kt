@@ -32,6 +32,10 @@ interface FileSystem {
     /** Get the file name (last path component) from a full path. */
     fun fileName(path: String): String = path.trimEnd('/').substringAfterLast('/')
 
-    /** Get the parent directory path. */
-    fun parent(path: String): String = path.trimEnd('/').substringBeforeLast('/')
+    /** Get the parent directory path. Returns "" for root-level paths. */
+    fun parent(path: String): String {
+        val trimmed = path.trimEnd('/')
+        val idx = trimmed.lastIndexOf('/')
+        return if (idx < 0) "" else trimmed.substring(0, idx)
+    }
 }

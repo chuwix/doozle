@@ -21,10 +21,9 @@ class UnseenManagerTest {
     inner class Initialization {
 
         @Test
-        fun `initialize creates _unseen and _ranked directories`() {
+        fun `initialize creates _ranked directory`() {
             manager.initialize()
 
-            assertTrue(fs.isDirectory("$projectRoot/_unseen"))
             assertTrue(fs.isDirectory("$projectRoot/_ranked"))
         }
 
@@ -33,12 +32,12 @@ class UnseenManagerTest {
             manager.initialize()
             manager.initialize()
 
-            assertTrue(fs.isDirectory("$projectRoot/_unseen"))
+            assertTrue(fs.isDirectory("$projectRoot/_ranked"))
         }
     }
 
     @Nested
-    inner class ScanForNew {
+    inner class UnseenDetection {
 
         @BeforeEach
         fun init() {
@@ -46,109 +45,82 @@ class UnseenManagerTest {
         }
 
         @Test
-        fun `scan moves new photos from root to _unseen`() {
+        fun `photos in project root are unseen`() {
             fs.createFile("$projectRoot/sunset.jpg")
             fs.createFile("$projectRoot/beach.png")
-
-            val moved = manager.scanForNewPhotos()
-
-            assertEquals(2, moved)
-            assertTrue(fs.exists("$projectRoot/_unseen/sunset.jpg"))
-            assertTrue(fs.exists("$projectRoot/_unseen/beach.png"))
-            assertFalse(fs.exists("$projectRoot/sunset.jpg"))
-            assertFalse(fs.exists("$projectRoot/beach.png"))
-        }
-
-        @Test
-        fun `scan ignores _ranked and _unseen directories`() {
-            fs.createFile("$projectRoot/_ranked/0_existing.jpg")
-            fs.createFile("$projectRoot/_unseen/already_there.jpg")
-
-            val moved = manager.scanForNewPhotos()
-
-            assertEquals(0, moved)
-        }
-
-        @Test
-        fun `scan ignores non-image files`() {
-            fs.createFile("$projectRoot/document.pdf")
-            fs.createFile("$projectRoot/notes.txt")
-            fs.createFile("$projectRoot/photo.jpg")
-
-            val moved = manager.scanForNewPhotos()
-
-            assertEquals(1, moved)
-            assertTrue(fs.exists("$projectRoot/_unseen/photo.jpg"))
-            assertTrue(fs.exists("$projectRoot/document.pdf"))
-        }
-
-        @Test
-        fun `scan finds photos in subdirectories recursively`() {
-            fs.createFile("$projectRoot/subfolder/deep.jpg")
-            fs.createFile("$projectRoot/subfolder/nested/deeper.png")
-
-            val moved = manager.scanForNewPhotos()
-
-            assertEquals(2, moved)
-            assertTrue(fs.exists("$projectRoot/_unseen/deep.jpg"))
-            assertTrue(fs.exists("$projectRoot/_unseen/deeper.png"))
-        }
-
-        @Test
-        fun `scan skips _ranked and _unseen subdirectories`() {
-            fs.createFile("$projectRoot/_ranked/0_existing.jpg")
-            fs.createFile("$projectRoot/_unseen/already_there.jpg")
-            fs.createFile("$projectRoot/other_subdir/new_photo.jpg")
-
-            val moved = manager.scanForNewPhotos()
-
-            assertEquals(1, moved)
-            assertTrue(fs.exists("$projectRoot/_unseen/new_photo.jpg"))
-        }
-
-        @Test
-        fun `scan does not duplicate if photo already in _unseen`() {
-            fs.createFile("$projectRoot/_unseen/sunset.jpg")
-            fs.createFile("$projectRoot/sunset.jpg")
-
-            val moved = manager.scanForNewPhotos()
-
-            // Should rename to avoid collision
-            assertEquals(1, moved)
-            assertTrue(fs.exists("$projectRoot/_unseen/sunset.jpg"))
-        }
-    }
-
-    @Nested
-    inner class UnseenList {
-
-        @BeforeEach
-        fun init() {
-            manager.initialize()
-        }
-
-        @Test
-        fun `getUnseenPhotos returns photos in _unseen folder`() {
-            fs.createFile("$projectRoot/_unseen/a.jpg")
-            fs.createFile("$projectRoot/_unseen/b.png")
 
             val unseen = manager.getUnseenPhotos()
 
             assertEquals(2, unseen.size)
-            assertTrue(unseen.any { it.originalName == "a.jpg" })
-            assertTrue(unseen.any { it.originalName == "b.png" })
+            assertTrue(unseen.any { it.originalName == "sunset.jpg" })
+            assertTrue(unseen.any { it.originalName == "beach.png" })
         }
 
         @Test
-        fun `getUnseenPhotos returns empty for no unseen`() {
+        fun `photos in _ranked are NOT unseen`() {
+            fs.createFile("$projectRoot/_ranked/0_existing.jpg")
+
             val unseen = manager.getUnseenPhotos()
+
             assertEquals(0, unseen.size)
         }
 
         @Test
-        fun `hasUnseen returns true when photos exist`() {
-            fs.createFile("$projectRoot/_unseen/photo.jpg")
+        fun `non-image files are not unseen`() {
+            fs.createFile("$projectRoot/document.pdf")
+            fs.createFile("$projectRoot/notes.txt")
+            fs.createFile("$projectRoot/photo.jpg")
+
+            val unseen = manager.getUnseenPhotos()
+
+            assertEquals(1, unseen.size)
+            assertEquals("photo.jpg", unseen[0].originalName)
+        }
+
+        @Test
+        fun `photos in subdirectories are found recursively`() {
+            fs.createFile("$projectRoot/subfolder/deep.jpg")
+            fs.createFile("$projectRoot/subfolder/nested/deeper.png")
+
+            val unseen = manager.getUnseenPhotos()
+
+            assertEquals(2, unseen.size)
+            assertTrue(unseen.any { it.originalName == "deep.jpg" })
+            assertTrue(unseen.any { it.originalName == "deeper.png" })
+        }
+
+        @Test
+        fun `photos in _ranked subdirectories are excluded`() {
+            fs.createFile("$projectRoot/_ranked/0_existing.jpg")
+            fs.createFile("$projectRoot/other_subdir/new_photo.jpg")
+
+            val unseen = manager.getUnseenPhotos()
+
+            assertEquals(1, unseen.size)
+            assertEquals("new_photo.jpg", unseen[0].originalName)
+        }
+
+        @Test
+        fun `hidden files are excluded`() {
+            fs.createFile("$projectRoot/.hidden.jpg")
+            fs.createFile("$projectRoot/visible.jpg")
+
+            val unseen = manager.getUnseenPhotos()
+
+            assertEquals(1, unseen.size)
+            assertEquals("visible.jpg", unseen[0].originalName)
+        }
+
+        @Test
+        fun `hasUnseen returns true when photos exist outside _ranked`() {
+            fs.createFile("$projectRoot/photo.jpg")
             assertTrue(manager.hasUnseen())
+        }
+
+        @Test
+        fun `hasUnseen returns false when no photos outside _ranked`() {
+            fs.createFile("$projectRoot/_ranked/0_photo.jpg")
+            assertFalse(manager.hasUnseen())
         }
 
         @Test
@@ -166,38 +138,80 @@ class UnseenManagerTest {
         }
 
         @Test
-        fun `promotePhoto removes from _unseen`() {
-            fs.createFile("$projectRoot/_unseen/photo.jpg")
-            val photo = Photo(originalName = "photo.jpg", path = "$projectRoot/_unseen/photo.jpg")
+        fun `promotePhoto moves from original location`() {
+            fs.createFile("$projectRoot/photo.jpg")
+            val photo = Photo(originalName = "photo.jpg", path = "$projectRoot/photo.jpg")
 
             manager.promotePhoto(photo)
 
-            assertFalse(fs.exists("$projectRoot/_unseen/photo.jpg"))
+            assertFalse(fs.exists("$projectRoot/photo.jpg"))
         }
 
         @Test
-        fun `promotePhoto returns path suitable for tree insertion`() {
-            fs.createFile("$projectRoot/_unseen/photo.jpg")
-            val photo = Photo(originalName = "photo.jpg", path = "$projectRoot/_unseen/photo.jpg")
+        fun `promotePhoto returns staging path suitable for tree insertion`() {
+            fs.createFile("$projectRoot/photo.jpg")
+            val photo = Photo(originalName = "photo.jpg", path = "$projectRoot/photo.jpg")
 
             val newPath = manager.promotePhoto(photo)
 
-            // The photo should be moved to a staging location for tree insertion
             assertTrue(fs.exists(newPath))
-            assertFalse(fs.exists("$projectRoot/_unseen/photo.jpg"))
+            assertFalse(fs.exists("$projectRoot/photo.jpg"))
         }
 
         @Test
-        fun `unseenCount decreases after promote`() {
-            fs.createFile("$projectRoot/_unseen/a.jpg")
-            fs.createFile("$projectRoot/_unseen/b.jpg")
+        fun `promotePhoto works with nested files`() {
+            fs.createFile("$projectRoot/vacation/photo.jpg")
+            val photo = Photo(originalName = "photo.jpg", path = "$projectRoot/vacation/photo.jpg")
+
+            val newPath = manager.promotePhoto(photo)
+
+            assertTrue(fs.exists(newPath))
+            assertFalse(fs.exists("$projectRoot/vacation/photo.jpg"))
+        }
+
+        @Test
+        fun `unseen count decreases after promote`() {
+            fs.createFile("$projectRoot/a.jpg")
+            fs.createFile("$projectRoot/b.jpg")
 
             assertEquals(2, manager.getUnseenPhotos().size)
 
-            val photo = Photo(originalName = "a.jpg", path = "$projectRoot/_unseen/a.jpg")
+            val photo = Photo(originalName = "a.jpg", path = "$projectRoot/a.jpg")
             manager.promotePhoto(photo)
 
             assertEquals(1, manager.getUnseenPhotos().size)
+        }
+    }
+
+    @Nested
+    inner class EmptyProjectRoot {
+        private lateinit var emptyRootManager: UnseenManager
+
+        @BeforeEach
+        fun init() {
+            emptyRootManager = UnseenManager(fs, "")
+            emptyRootManager.initialize()
+        }
+
+        @Test
+        fun `works with empty project root`() {
+            fs.createFile("photo.jpg")
+
+            val unseen = emptyRootManager.getUnseenPhotos()
+
+            assertEquals(1, unseen.size)
+            assertEquals("photo.jpg", unseen[0].originalName)
+        }
+
+        @Test
+        fun `skips _ranked with empty project root`() {
+            fs.createFile("_ranked/0_photo.jpg")
+            fs.createFile("other.jpg")
+
+            val unseen = emptyRootManager.getUnseenPhotos()
+
+            assertEquals(1, unseen.size)
+            assertEquals("other.jpg", unseen[0].originalName)
         }
     }
 }

@@ -20,15 +20,19 @@ data class PairCandidate(
  *    - neighborRatio chance: pick two nearby photos (within a small position window)
  *    - (1 - neighborRatio) chance: pick two random photos from anywhere
  * 3. Never pick the same photo twice in a pair
+ *
+ * The unseen list is scanned once on construction and cached.
+ * Call removeUnseen() after promoting a photo to keep the cache consistent.
  */
 class PairSelector(
     private val tree: BStarTree,
     private val fs: FileSystem,
-    private val unseenRoot: String,
+    private val projectRoot: String,
     private val config: EngineConfig,
     private val seed: Long? = null
 ) {
     private val rng: Random = if (seed != null) Random(seed) else Random()
+    private var cachedUnseen: MutableList<String>? = null
 
     fun selectPair(): Pair<PairCandidate, PairCandidate>? {
         val unseenPhotos = listUnseen()
@@ -77,20 +81,41 @@ class PairSelector(
     }
 
     /**
-     * List all unseen photo paths (recursive scan of unseen directory).
+     * Remove a path from the cached unseen list (call after promoting).
+     */
+    fun removeUnseen(path: String) {
+        cachedUnseen?.remove(path)
+    }
+
+    /**
+     * Get cached unseen count without re-scanning.
+     */
+    fun unseenCount(): Int = cachedUnseen?.size ?: 0
+
+    /**
+     * List unseen photo paths: image files in projectRoot (recursive), skipping _ranked/.
+     * Cached after first call — use removeUnseen() to keep in sync after promotes.
      */
     fun listUnseen(): List<String> {
-        if (!fs.exists(unseenRoot)) return emptyList()
-        return collectFiles(unseenRoot)
+        if (cachedUnseen == null) {
+            cachedUnseen = collectFiles(projectRoot).toMutableList()
+        }
+        return cachedUnseen!!
     }
 
     private fun collectFiles(path: String): List<String> {
+        if (!fs.exists(path)) return emptyList()
         val result = mutableListOf<String>()
         for (child in fs.listChildren(path)) {
+            val name = fs.fileName(child)
+            if (name.startsWith(".")) continue
             if (fs.isDirectory(child)) {
+                if (name == UnseenManager.RANKED_DIR) continue
                 result.addAll(collectFiles(child))
-            } else if (!fs.fileName(child).startsWith(".")) {
-                result.add(child)
+            } else {
+                if (UnseenManager.isImageFile(name)) {
+                    result.add(child)
+                }
             }
         }
         return result
